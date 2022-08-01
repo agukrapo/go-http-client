@@ -19,7 +19,7 @@ const (
 )
 
 type doer interface {
-	Do(req *http.Request) (*http.Response, error)
+	Do(*http.Request) (*http.Response, error)
 }
 
 // ResponseValidatorFunc returns an error when a http.Response should retry.
@@ -62,7 +62,7 @@ func WaitTime(fn WaitTimeFunc) Option {
 	}
 }
 
-// New instantiates a new Client.
+// New creates a new Client.
 func New(opts ...Option) *Client {
 	c := &Client{
 		doer: &http.Client{
