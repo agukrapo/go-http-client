@@ -8,7 +8,7 @@ build:
 	@echo "Building ${NAME}..."
 	@go build ./...
 
-test:
+test: build
 	@echo "Testing ${NAME}..."
 	@go test ./... -cover -race -shuffle=on
 
