@@ -64,7 +64,7 @@ func WaitTime(fn WaitTimeFunc) Option {
 
 // New creates a new Client.
 func New(opts ...Option) *Client {
-	c := &Client{
+	out := &Client{
 		doer: &http.Client{
 			Timeout: defaultTimeout,
 		},
@@ -74,10 +74,10 @@ func New(opts ...Option) *Client {
 	}
 
 	for _, o := range opts {
-		o(c)
+		o(out)
 	}
 
-	return c
+	return out
 }
 
 // Do sends an HTTP request and returns an HTTP response.
@@ -90,6 +90,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		if err != nil {
 			return err
 		}
+
 		if err := c.resValidator(res); err != nil {
 			return err
 		}
@@ -103,10 +104,11 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return res, nil
 }
 
-func (c *Client) retry(f func() error) (err error) {
+func (c *Client) retry(f func() error) error {
+	var err error
+
 	for i := 0; i < c.attempts; i++ {
-		err = f()
-		if err == nil {
+		if err = f(); err == nil {
 			return nil
 		}
 
@@ -122,6 +124,7 @@ func (c *Client) retry(f func() error) (err error) {
 func defaultWaitTime(i int) time.Duration {
 	v := time.Duration(math.Pow(waitTimeBase, float64(i))) * time.Second
 	r := time.Duration(rand.Intn(secondInMillis)) * time.Millisecond //nolint:gosec
+
 	return v + r
 }
 
@@ -129,9 +132,11 @@ func validate(res *http.Response) error {
 	switch {
 	case res == nil:
 		return nil
+
 	case res.StatusCode == http.StatusRequestTimeout,
 		res.StatusCode == http.StatusTooManyRequests,
 		strings.HasPrefix(strconv.Itoa(res.StatusCode), "5"):
+
 		return fmt.Errorf("invalid status: %d %s", res.StatusCode, res.Status)
 	}
 

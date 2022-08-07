@@ -64,6 +64,7 @@ func TestClient_Do(t *testing.T) {
 
 func Test_defaultWaitTime(t *testing.T) {
 	rand.Seed(98723)
+
 	tests := []struct {
 		i    int
 		want string
@@ -83,17 +84,18 @@ func Test_defaultWaitTime(t *testing.T) {
 }
 
 func TestClient_AvoidSleepOnLastAttempt(t *testing.T) {
-	wt := func(i int) time.Duration {
+	timeFunc := func(i int) time.Duration {
 		if i == 2 {
 			panic("unexpected")
 		}
+
 		return 0
 	}
 
-	c := New(Attempts(2), WaitTime(wt))
-	c.doer = &testDoer{err: io.ErrUnexpectedEOF}
+	client := New(Attempts(2), WaitTime(timeFunc))
+	client.doer = &testDoer{err: io.ErrUnexpectedEOF}
 
-	res, err := c.Do(&http.Request{})
+	res, err := client.Do(&http.Request{})
 	require.EqualError(t, err, "after 2 attempts: unexpected EOF")
 	assert.Nil(t, res)
 }

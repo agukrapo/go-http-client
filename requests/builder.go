@@ -29,18 +29,30 @@ func New(url string) *Builder {
 // Method sets the request method (default get).
 func (b *Builder) Method(method string) *Builder {
 	b.method = method
+
 	return b
 }
 
 // Body sets the request body.
 func (b *Builder) Body(body io.Reader) *Builder {
 	b.body = body
+
 	return b
 }
 
-// Body add a request header.
+// Header adds a request header.
 func (b *Builder) Header(key, value string) *Builder {
 	b.headers = append(b.headers, headerValue{key, value})
+
+	return b
+}
+
+// Headers adds all request headers inside values map input.
+func (b *Builder) Headers(values map[string]string) *Builder {
+	for k, v := range values {
+		b.headers = append(b.headers, headerValue{k, v})
+	}
+
 	return b
 }
 
