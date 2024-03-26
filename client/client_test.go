@@ -3,7 +3,7 @@ package client
 import (
 	"fmt"
 	"io"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -63,22 +63,22 @@ func TestClient_Do(t *testing.T) {
 }
 
 func Test_defaultWaitTime(t *testing.T) {
-	rand.Seed(98723)
+	waitTime := defaultWaitTime(rand.New(rand.NewPCG(0, 0)))
 
 	tests := []struct {
 		i    int
 		want string
 	}{
-		{0, "1.653s"},
-		{1, "2.845s"},
-		{2, "4.973s"},
-		{3, "8.385s"},
-		{4, "16.484s"},
-		{5, "32.413s"},
+		{0, "222ms"},
+		{1, "1.175s"},
+		{2, "2.343s"},
+		{3, "4.94s"},
+		{4, "8.399s"},
+		{5, "12.576s"},
 	}
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("i=%d", tt.i), func(t *testing.T) {
-			assert.Equal(t, tt.want, defaultWaitTime(tt.i).String())
+			assert.Equal(t, tt.want, waitTime(tt.i).String())
 		})
 	}
 }

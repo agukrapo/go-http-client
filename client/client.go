@@ -4,18 +4,11 @@ package client
 import (
 	"fmt"
 	"math"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
-)
-
-const (
-	defaultTimeout  = 30 * time.Second
-	defaultAttempts = 6
-	waitTimeBase    = 2
-	secondInMillis  = 1000
 )
 
 type doer interface {
@@ -66,11 +59,11 @@ func WaitTime(fn WaitTimeFunc) Option {
 func New(opts ...Option) *Client {
 	out := &Client{
 		doer: &http.Client{
-			Timeout: defaultTimeout,
+			Timeout: 30 * time.Second,
 		},
 		resValidator: validate,
-		waitTime:     defaultWaitTime,
-		attempts:     defaultAttempts,
+		waitTime:     defaultWaitTime(rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))),
+		attempts:     6,
 	}
 
 	for _, o := range opts {
@@ -82,8 +75,6 @@ func New(opts ...Option) *Client {
 
 // Do sends an HTTP request and returns an HTTP response.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
-	rand.Seed(time.Now().UnixNano())
-
 	var res *http.Response
 	err := c.retry(func() (err error) {
 		res, err = c.doer.Do(req)
@@ -121,11 +112,12 @@ func (c *Client) retry(f func() error) error {
 	return fmt.Errorf("after %d attempts: %w", c.attempts, err)
 }
 
-func defaultWaitTime(i int) time.Duration {
-	v := time.Duration(math.Pow(waitTimeBase, float64(i))) * time.Second
-	r := time.Duration(rand.Intn(secondInMillis)) * time.Millisecond //nolint:gosec
-
-	return v + r
+func defaultWaitTime(r *rand.Rand) WaitTimeFunc {
+	return func(i int) time.Duration {
+		v := time.Duration(math.Pow(float64(i), 2)) * (500 * time.Millisecond)
+		r := time.Duration(r.IntN(1000)) * time.Millisecond
+		return v + r
+	}
 }
 
 func validate(res *http.Response) error {
