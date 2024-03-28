@@ -37,6 +37,27 @@ func (b *Builder) Method(method string) *Builder {
 	return b
 }
 
+// Post sets the request method to POST.
+func (b *Builder) Post() *Builder {
+	b.method = http.MethodPost
+
+	return b
+}
+
+// Put sets the request method to PUT.
+func (b *Builder) Put() *Builder {
+	b.method = http.MethodPut
+
+	return b
+}
+
+// Patch sets the request method to PATCH.
+func (b *Builder) Patch() *Builder {
+	b.method = http.MethodPatch
+
+	return b
+}
+
 // Body sets the request body.
 func (b *Builder) Body(body io.Reader) *Builder {
 	b.body = body
