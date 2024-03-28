@@ -1,25 +1,26 @@
 .DEFAULT_GOAL := all
 
-NAME := $(shell basename $(CURDIR))
-
-all: build test format lint
+all: test format lint
 
 build:
-	@echo "Building ${NAME}..."
 	@go build ./...
 
 test: build
-	@echo "Testing ${NAME}..."
-	@go test ./... -cover -race -shuffle=on
+	@gotestsum ./... -cover -race -shuffle=on
 
 format:
-	@echo "Formatting ${NAME}..."
 	@go mod tidy
-	@gofumpt -l -w . #go install mvdan.cc/gofumpt@latest
+	@gofumpt -l -w .
 
 lint:
-	@echo "Linting ${NAME}..."
 	@go vet ./...
 	@govulncheck ./...
 	@gosec ./...
-	@golangci-lint run #https://golangci-lint.run/usage/install/
+	@golangci-lint run
+
+deps:
+	@go install gotest.tools/gotestsum@latest
+	@go install mvdan.cc/gofumpt@latest
+	@go install golang.org/x/vuln/cmd/govulncheck@latest
+	@go install github.com/securego/gosec/v2/cmd/gosec@latest
+	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
