@@ -1,7 +1,10 @@
 package requests
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 )
@@ -16,6 +19,7 @@ type Builder struct {
 	method  string
 	body    io.Reader
 	headers []headerValue
+	errors  []error
 }
 
 // New creates a new Builder.
@@ -40,6 +44,20 @@ func (b *Builder) Body(body io.Reader) *Builder {
 	return b
 }
 
+// JSON sets the request body as json.
+func (b *Builder) JSON(v any) *Builder {
+	bs, err := json.Marshal(v)
+	if err != nil {
+		b.errors = append(b.errors, err)
+		return b
+	}
+
+	b.body = bytes.NewReader(bs)
+	b.headers = append(b.headers, headerValue{"Content-Type", "application/json"})
+	b.headers = append(b.headers, headerValue{"Accept", "application/json"})
+	return b
+}
+
 // Header adds a request header.
 func (b *Builder) Header(key, value string) *Builder {
 	b.headers = append(b.headers, headerValue{key, value})
@@ -58,6 +76,10 @@ func (b *Builder) Headers(values map[string]string) *Builder {
 
 // Build builds the Request.
 func (b *Builder) Build(ctx context.Context) (*http.Request, error) {
+	if len(b.errors) != 0 {
+		return nil, errors.Join(b.errors...)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, b.method, b.url, b.body)
 	if err != nil {
 		return nil, err
