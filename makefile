@@ -15,12 +15,10 @@ format:
 lint:
 	@go vet ./...
 	@govulncheck ./...
-	@gosec ./...
 	@golangci-lint run
 
 deps:
 	@go install gotest.tools/gotestsum@latest
 	@go install mvdan.cc/gofumpt@latest
 	@go install golang.org/x/vuln/cmd/govulncheck@latest
-	@go install github.com/securego/gosec/v2/cmd/gosec@latest
 	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
