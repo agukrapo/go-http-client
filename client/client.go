@@ -2,6 +2,8 @@
 package client
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -101,6 +103,9 @@ func (c *Client) retry(f func() error) error {
 	for i := 0; i < c.attempts; i++ {
 		if err = f(); err == nil {
 			return nil
+		}
+		if errors.Is(err, context.Canceled) {
+			return err
 		}
 
 		if i != c.attempts-1 { // avoid sleep on last attempt

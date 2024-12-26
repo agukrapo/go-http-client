@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -41,6 +42,7 @@ func TestClient_Do(t *testing.T) {
 	}{
 		{name: "ok", doer: &testDoer{res: response(200)}, res: response(200)},
 		{name: "error", doer: &testDoer{err: io.ErrUnexpectedEOF}, err: "after 6 attempts: unexpected EOF"},
+		{name: "context cancelled", doer: &testDoer{err: context.Canceled}, err: "context canceled"},
 		{name: "408", doer: &testDoer{res: response(408)}, err: "after 6 attempts: invalid status: 408 Request Timeout"},
 		{name: "429", doer: &testDoer{res: response(429)}, err: "after 6 attempts: invalid status: 429 Too Many Requests"},
 		{name: "500", doer: &testDoer{res: response(500)}, err: "after 6 attempts: invalid status: 500 Internal Server Error"},
