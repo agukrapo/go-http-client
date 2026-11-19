@@ -120,8 +120,7 @@ func (c *Client) retry(f func() error) error {
 func defaultWaitTime(r *rand.Rand) WaitTimeFunc {
 	return func(i int) time.Duration {
 		v := time.Duration(math.Pow(float64(i), 2)) * (500 * time.Millisecond)
-		r := time.Duration(r.IntN(1000)) * time.Millisecond
-		return v + r
+		return v + time.Duration(r.IntN(1000))*time.Millisecond
 	}
 }
 
