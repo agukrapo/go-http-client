@@ -4,9 +4,9 @@ package client
 import (
 	"context"
 	"errors"
-	"fmt"
+	"iter"
 	"math"
-	"math/rand/v2"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,27 +17,20 @@ type doer interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-// ResponseValidatorFunc returns an error when a http.Response should retry.
-type ResponseValidatorFunc func(*http.Response) error
-
-// WaitTimeFunc tells how much Client wait between failed attempts, starting from 0.
-type WaitTimeFunc func(int) time.Duration
-
 // Client represents a retryable HTTP client.
 type Client struct {
-	doer         doer
-	waitTime     WaitTimeFunc
-	resValidator ResponseValidatorFunc
-	attempts     int
+	doer     doer
+	retries  uint8
+	waitTime func(uint8) time.Duration
 }
 
 // Option represents Client constructor option.
 type Option func(*Client)
 
-// Attempts represents an Option to specify Client retry attempts.
-func Attempts(attempts int) Option {
+// Retries represents an Option to specify Client retry attempts.
+func Retries(retries uint8) Option {
 	return func(c *Client) {
-		c.attempts = attempts
+		c.retries = retries
 	}
 }
 
@@ -50,22 +43,14 @@ func Timeout(timeout time.Duration) Option {
 	}
 }
 
-// WaitTime represents an Option to specify Client wait time between attempts.
-func WaitTime(fn WaitTimeFunc) Option {
-	return func(c *Client) {
-		c.waitTime = fn
-	}
-}
-
 // New creates a new Client.
 func New(opts ...Option) *Client {
 	out := &Client{
 		doer: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		resValidator: validate,
-		waitTime:     defaultWaitTime(rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))),
-		attempts:     6,
+		retries:  6,
+		waitTime: defaultWaitTime(rand.New(rand.NewSource(time.Now().Unix()))), // #nosec G404
 	}
 
 	for _, o := range opts {
@@ -76,65 +61,72 @@ func New(opts ...Option) *Client {
 }
 
 // Do sends an HTTP request and returns an HTTP response.
-func (c *Client) Do(req *http.Request) (*http.Response, error) {
-	var res *http.Response
-	err := c.retry(func() (err error) {
+func (c *Client) Do(req *http.Request) (res *http.Response, err error) {
+	for range attempts(req.Context(), c.retries, c.waitTime) {
 		res, err = c.doer.Do(req)
-		if err != nil {
-			return err
-		}
-
-		if err := c.resValidator(res); err != nil {
-			return err
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return res, nil
-}
-
-func (c *Client) retry(f func() error) error {
-	var err error
-
-	for i := 0; i < c.attempts; i++ {
-		if err = f(); err == nil {
-			return nil
-		}
-		if errors.Is(err, context.Canceled) {
-			return err
-		}
-
-		if i != c.attempts-1 { // avoid sleep on last attempt
-			t := c.waitTime(i + 1)
-			time.Sleep(t)
+		if !shouldRetry(res, err) {
+			return res, err
 		}
 	}
 
-	return fmt.Errorf("after %d attempts: %w", c.attempts, err)
-}
-
-func defaultWaitTime(r *rand.Rand) WaitTimeFunc {
-	return func(i int) time.Duration {
-		v := time.Duration(math.Pow(float64(i), 2)) * (500 * time.Millisecond)
-		return v + time.Duration(r.IntN(1000))*time.Millisecond
+	if req.Context().Err() != nil {
+		err = req.Context().Err()
 	}
+
+	return res, err
 }
 
-func validate(res *http.Response) error {
+func shouldRetry(res *http.Response, err error) bool {
 	switch {
+	case isHttpClientTimeout(err):
+		return true
+	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+		return false
+	case err != nil:
+		return true
 	case res == nil:
-		return nil
-
+		return false
 	case res.StatusCode == http.StatusRequestTimeout,
-		res.StatusCode == http.StatusTooManyRequests,
 		strings.HasPrefix(strconv.Itoa(res.StatusCode), "5"):
-
-		return fmt.Errorf("invalid status: %d %s", res.StatusCode, res.Status)
+		return true
+	default:
+		return false
 	}
+}
 
-	return nil
+func isHttpClientTimeout(err error) bool {
+	return err != nil && strings.HasSuffix(err.Error(), "(Client.Timeout exceeded while awaiting headers)")
+}
+
+// attempts encapsulates retry logic inside an iterator
+func attempts(ctx context.Context, max uint8, wait func(uint8) time.Duration) iter.Seq[uint8] {
+	var attempt uint8
+
+	return func(yield func(uint8) bool) {
+		if !yield(attempt) {
+			return
+		}
+
+		for attempt < max {
+			attempt++
+
+			select {
+			case <-time.After(wait(attempt)):
+				if !yield(attempt) {
+					return
+				}
+
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
+func defaultWaitTime(r *rand.Rand) func(attempt uint8) time.Duration {
+	return func(attempt uint8) time.Duration {
+		backoff := time.Duration(math.Pow(float64(attempt), 2)) * time.Second
+		jitter := time.Duration(r.Intn(1000)) * time.Millisecond
+		return backoff + jitter
+	}
 }

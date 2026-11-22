@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/rand/v2"
+	"math/rand"
 	"net/http"
 	"testing"
 	"time"
@@ -14,16 +14,18 @@ import (
 )
 
 type testDoer struct {
-	res *http.Response
-	err error
+	res      *http.Response
+	err      error
+	attempts uint8
 }
 
-func (td *testDoer) Do(*http.Request) (*http.Response, error) {
+func (td *testDoer) Do(req *http.Request) (*http.Response, error) {
+	if req.Context().Err() != nil {
+		return nil, req.Context().Err()
+	}
+
+	td.attempts++
 	return td.res, td.err
-}
-
-func testWaitTime(int) time.Duration {
-	return 0
 }
 
 func response(code int) *http.Response {
@@ -33,71 +35,111 @@ func response(code int) *http.Response {
 	}
 }
 
+func errHTTPClientTimeout() error {
+	return fmt.Errorf("%w (Client.Timeout exceeded while awaiting headers)", context.DeadlineExceeded)
+}
+
 func TestClient_Do(t *testing.T) {
 	tests := []struct {
-		name string
-		doer doer
-		res  *http.Response
-		err  string
+		name     string
+		doer     *testDoer
+		res      *http.Response
+		attempts uint8
+		err      string
 	}{
-		{name: "ok", doer: &testDoer{res: response(200)}, res: response(200)},
-		{name: "error", doer: &testDoer{err: io.ErrUnexpectedEOF}, err: "after 6 attempts: unexpected EOF"},
-		{name: "context cancelled", doer: &testDoer{err: context.Canceled}, err: "context canceled"},
-		{name: "408", doer: &testDoer{res: response(408)}, err: "after 6 attempts: invalid status: 408 Request Timeout"},
-		{name: "429", doer: &testDoer{res: response(429)}, err: "after 6 attempts: invalid status: 429 Too Many Requests"},
-		{name: "500", doer: &testDoer{res: response(500)}, err: "after 6 attempts: invalid status: 500 Internal Server Error"},
-		{name: "502", doer: &testDoer{res: response(502)}, err: "after 6 attempts: invalid status: 502 Bad Gateway"},
+		{name: "ok", doer: &testDoer{res: response(200)}, res: response(200), attempts: 1},
+		{name: "error", doer: &testDoer{err: io.ErrUnexpectedEOF}, err: "unexpected EOF", attempts: 4},
+		{name: "context cancelled", doer: &testDoer{err: context.Canceled}, err: "context canceled", attempts: 1},
+		{name: "context deadline exceeded", doer: &testDoer{err: context.DeadlineExceeded}, err: "context deadline exceeded", attempts: 1},
+		{name: "http client timeout", doer: &testDoer{err: errHTTPClientTimeout()}, err: "context deadline exceeded (Client.Timeout exceeded while awaiting headers)", attempts: 4},
+		{name: "408", doer: &testDoer{res: response(408)}, res: response(408), attempts: 4},
+		{name: "429", doer: &testDoer{res: response(429)}, res: response(429), attempts: 1},
+		{name: "500", doer: &testDoer{res: response(500)}, res: response(500), attempts: 4},
+		{name: "502", doer: &testDoer{res: response(502)}, res: response(502), attempts: 4},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := New(Timeout(time.Minute), WaitTime(testWaitTime))
-			c.doer = tt.doer
+			client := New(Timeout(time.Minute), Retries(3))
+			client.doer = tt.doer
+			client.waitTime = func(uint8) time.Duration {
+				return 0
+			}
 
-			res, err := c.Do(&http.Request{})
+			res, err := client.Do(&http.Request{})
 			if tt.err != "" {
 				require.EqualError(t, err, tt.err)
 			} else {
 				require.NoError(t, err)
 			}
+			assert.Equal(t, tt.attempts, tt.doer.attempts)
 			assert.Equal(t, tt.res, res)
 		})
 	}
 }
 
 func Test_defaultWaitTime(t *testing.T) {
-	waitTime := defaultWaitTime(rand.New(rand.NewPCG(0, 0)))
+	client := New()
+	client.waitTime = defaultWaitTime(rand.New(rand.NewSource(1)))
 
 	tests := []struct {
-		i    int
+		i    uint8
 		want string
 	}{
-		{0, "222ms"},
-		{1, "1.175s"},
-		{2, "2.343s"},
-		{3, "4.94s"},
-		{4, "8.399s"},
-		{5, "12.576s"},
+		{0, "81ms"},
+		{1, "1.887s"},
+		{2, "4.847s"},
+		{3, "9.059s"},
+		{4, "16.081s"},
+		{5, "25.318s"},
 	}
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("i=%d", tt.i), func(t *testing.T) {
-			assert.Equal(t, tt.want, waitTime(tt.i).String())
+			assert.Equal(t, tt.want, client.waitTime(tt.i).String())
 		})
 	}
 }
 
 func TestClient_AvoidSleepOnLastAttempt(t *testing.T) {
-	timeFunc := func(i int) time.Duration {
-		if i == 2 {
-			panic("unexpected")
-		}
-
-		return 0
+	timeFunc := func(i uint8) time.Duration {
+		panic("unexpected")
 	}
 
-	client := New(Attempts(2), WaitTime(timeFunc))
+	client := New(Retries(0))
 	client.doer = &testDoer{err: io.ErrUnexpectedEOF}
+	client.waitTime = timeFunc
 
 	res, err := client.Do(&http.Request{})
-	require.EqualError(t, err, "after 2 attempts: unexpected EOF")
+	require.EqualError(t, err, "unexpected EOF")
 	assert.Nil(t, res)
+}
+
+func TestClient_context(t *testing.T) {
+	t.Run("timeout", func(t *testing.T) {
+		client := New()
+		client.doer = &testDoer{err: io.ErrUnexpectedEOF}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPut, "", nil)
+		require.NoError(t, err)
+
+		res, err := client.Do(req)
+		require.EqualError(t, err, "context deadline exceeded")
+		assert.Nil(t, res)
+	})
+	t.Run("cancel", func(t *testing.T) {
+		client := New()
+		client.doer = &testDoer{err: io.ErrUnexpectedEOF}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPut, "", nil)
+		require.NoError(t, err)
+
+		res, err := client.Do(req)
+		require.EqualError(t, err, "context canceled")
+		assert.Nil(t, res)
+	})
 }
