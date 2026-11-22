@@ -36,6 +36,12 @@ func Test_builder(t *testing.T) {
 
 		assert.Equal(t, http.MethodPatch, req.Method)
 	})
+	t.Run("delete", func(t *testing.T) {
+		req, err := New("_url").Delete().Build(t.Context())
+		require.NoError(t, err)
+
+		assert.Equal(t, http.MethodDelete, req.Method)
+	})
 	t.Run("body", func(t *testing.T) {
 		req, err := New("_url").Body(strings.NewReader("_body")).Build(t.Context())
 		require.NoError(t, err)

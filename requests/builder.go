@@ -58,6 +58,13 @@ func (b *Builder) Patch() *Builder {
 	return b
 }
 
+// Delete sets the request method to DELETE.
+func (b *Builder) Delete() *Builder {
+	b.method = http.MethodDelete
+
+	return b
+}
+
 // Body sets the request body.
 func (b *Builder) Body(body io.Reader) *Builder {
 	b.body = body
