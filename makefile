@@ -16,6 +16,7 @@ lint:
 	@go vet ./...
 	@govulncheck ./...
 	@gosec ./...
+	@deadcode -test ./...
 	@golangci-lint run
 
 deps:
@@ -23,4 +24,5 @@ deps:
 	@go install mvdan.cc/gofumpt@latest
 	@go install golang.org/x/vuln/cmd/govulncheck@latest
 	@go install github.com/securego/gosec/v2/cmd/gosec@latest
+	@go install golang.org/x/tools/cmd/deadcode@latest
 
